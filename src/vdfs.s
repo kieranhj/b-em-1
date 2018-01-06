@@ -210,13 +210,13 @@ EQUS "Filing system selection:":EQUB 13
 EQUS "  DISK, DISC, ADFS, FADFS :":EQUB 10
 EQUS "Select VDFS if claimed":EQUB 13
 EQUS "  VDFS : Select VDFS":EQUB 13
-EQUS "  FSCLAIM ON : Claim DISC, ADFS":EQUB 13
-EQUS "  FSCLAIM OFF : Release DISC, ADFS":EQUB 13
+EQUS "  FSCLAIM ON : Claim DISC, ADFS, FADFS":EQUB 13
+EQUS "  FSCLAIM OFF : Release DISC, ADFS, FADFS":EQUB 13
 EQUS "  OSW7F (NONE)(<ver>) :":EQUB 10
 EQUS "Emulate Osword &7F memory corruption":EQUB 13
 EQUB 13
 EQUS "Utility commands:":EQUB 13
-EQUS "  QUIT or DESKTOP : return to RISC OS":EQUB 13
+EQUS "  QUIT or DESKTOP : terminate emulator":EQUB 13
 EQUS "  PAGE : force PAGE location":EQUB 13
 EQUS "  SHADOW : dummy command":EQUB 13
 EQUB 13
@@ -231,13 +231,15 @@ EQUS "  SRWRITE <start> <+len> <swadd> (<r#>)":EQUB 13
 EQUB 13
 EQUS "VDFS commands:":EQUB 13
 EQUS "  BACK : return to previous directory":EQUB 13
+EQUS "  DELETE : delete file or empty dir":EQUB 13
+EQUS "  CDIR : create a new directory":EQUB 13
 EQUS "  DIR : change current directory":EQUB 13
 EQUS "  LIB : change current library":EQUB 13
 EQUS "  INFO : show info on single file":EQUB 13
 EQUS "  EX : show info on all files in CSD":EQUB 13
 EQUS "  ACCESS, BACKUP, COMPACT, COPY,":EQUB 10
-EQUS "DESTROY, DRIVE, ENABLE, FORM, FREE,":EQUB 13
-EQUS "  MAP, MOUNT, RENAME, TITLE, VERIFY, ":EQUB 10
+EQUS "DESTROY, DRIVE, ENABLE, FORM,":EQUB 13
+EQUS "  FREE, MAP, MOUNT, TITLE, VERIFY,":EQUB 10
 EQUS "WIPE : trapped and ignored":EQUB 13
 EQUB 0
 \ --------------------
@@ -259,7 +261,7 @@ RTS
         LDX #<oswpb         ;\ YX = parameter block.
         LDY #>oswpb
         CMP FSFlag
-	RTS
+        RTS
 	
 .srload LDA #&D0
         BNE srfile
@@ -405,9 +407,18 @@ CMP #&05:BNE P%+5:JMP Cat   :\ Catalogue directory
 CMP #&03:BNE P%+5:JMP FSCommandLookup:\ Filing system commands
 CMP #&06:BNE FSCemul:LDA #&77:JSR OSBYTE:LDA#&06
 .FSCemul
-STA PORT_A:LDA #&00:STA PORT_CMD :\ Pass to emulator and return
+STA PORT_A:LDA #&00:STA PORT_CMD :\ Pass to emulator.
+BCS FSCtube                 :\ start execution in tube?	
 .FSCDone
 RTS
+.FSCtube		:\ claim the tube.
+LDA #&D1
+JSR &0406
+BCC FSCtube
+LDA #&04		:\ start execution at the 32 bit address in
+LDX #&c0		:\ &C0 which is set by the VDFS host code.
+LDY #&00
+JMP &0406
 :
 \ ----------------------
 \ Filing System Commands
@@ -453,6 +464,7 @@ RTS                         :\ And return
 EQUS "ACCESS" :EQUB 13:EQUW access
 EQUS "BACK"   :EQUB 13:EQUW back
 EQUS "BACKUP" :EQUB 13:EQUW backup
+EQUS "CDIR"   :EQUB 13:EQUW cdir
 EQUS "COMPACT":EQUB 13:EQUW compact
 EQUS "COPY"   :EQUB 13:EQUW copy
 EQUS "DELETE" :EQUB 13:EQUW delete
@@ -482,9 +494,10 @@ TYA:CLC:ADC &F2:TAX:LDA &F3:ADC #0:TAY:RTS
 .access   :RTS
 .back     :LDA #&D5:STA PORT_CMD:RTS :\ Pass to host and return
 .backup   :RTS
+.cdir     :LDX #&08:JMP FileCmd
 .compact  :RTS
 .copy     :RTS
-.delete   :RTS
+.delete   :LDX #&06:JMP FileCmd
 .destroy  :RTS
 .dir      :LDA #&D7:STA PORT_CMD:RTS :\ Pass to host and return
 .drive    :RTS
@@ -501,6 +514,30 @@ TYA:CLC:ADC &F2:TAX:LDA &F3:ADC #0:TAY:RTS
 .title    :RTS
 .verify   :RTS
 :
+.FileCmd
+TYA:CLC:ADC &F2:STA &B0
+LDA &F3:ADC #00:STA &B1
+TXA:LDX #&B0:LDY #&00:JSR OSFILE
+CMP #&00:BEQ FileCmdNf:RTS
+.FileCmdNf
+JSR errmsg
+EQUB &D6:EQUS "Not found":EQUB &00
+
+.errmsg
+{
+        pla
+        sta     &b0
+        pla
+        sta     &b1
+        ldy     #$00
+.loop   iny
+        lda     (&b0),y
+        sta     &0100,y
+        bne     loop
+        sta     &0100
+        jmp     &0100
+}
+
 \ ---------------------------
 \ Functions performed locally
 \ ---------------------------
